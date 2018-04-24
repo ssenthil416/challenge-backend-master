@@ -65,6 +65,7 @@ func main() {
 	})
 
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+                    w.Header().Add("Content-Type", "application/json")
 		   if err := userHandler(w, r, db); err != nil {
 		       http.Error(w, err.Error(), http.StatusInternalServerError)
 		   } else {
@@ -74,6 +75,7 @@ func main() {
 	})
 
 	http.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
+                 w.Header().Add("Content-Type", "application/json")
 		if err := messageHandler(w, r, db); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		} else {
@@ -106,12 +108,14 @@ func userHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error)
         cmd := r.Method
         firstTime := true
         fmt.Println("cmd =", cmd)
+        fmt.Println("Content Type =", r.Header.Get("Conetent-Type"))
 	dec := json.NewDecoder(r.Body)
+        fmt.Printf("Body = %v\n", dec)
 	for {
 		var t UserStruct
 		if err := dec.Decode(&t); err == io.EOF {
                         if firstTime {
-                        return errors.New("Missing Arguments") 
+                        return errors.New("Missing Params") 
                         }
                         break
 		} else if err != nil {
@@ -146,7 +150,7 @@ func userHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error)
 				return err
 			}
 
-			res, err := stmt.Exec(t.Name, t.Password)
+			res, err := stmt.Exec(t.Password,t.Name)
 			if err != nil {
 				return err
 			}

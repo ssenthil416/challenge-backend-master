@@ -10,10 +10,10 @@ const (
        `
 
 	INSERT_USER = `
-               INSERT INTO TABLE users VALUES(?,?);
+               INSERT users SET name=?, password=?;
        `
 	UPDATE_USER = `
-               UPDATE TABLE users SET password=? WHERE name=?;
+               UPDATE  users SET password=? WHERE name=?;
        `
 	CREATE_MSG = `
         	CREATE TABLE IF NOT EXISTS messages (
