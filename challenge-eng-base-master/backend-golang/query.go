@@ -22,11 +22,13 @@ const (
                         message varchar(1000),
                         contentmetadata varchar(50) NOT NULL,
                         timestamp timestamp NOT NULL,
-       			PRIMARY KEY (sender,recipient)
+       			PRIMARY KEY (sender,recipient,timestamp)
        		);
        `
 
 	INSERT_MSG = `
-               INSERT INTO TABLE messages VALUES;
+               INSERT messages SET sender=?, recipient=?, message=?, contentmetadata=?, timestamp=?;
        `
+
+	DROP_MSG = `DROP TABLE messages;`
 )
