@@ -9,13 +9,11 @@ const (
        		);
         `
 
-	INSERT_USER = `
-               INSERT users SET name=?, password=?;
-        `
+	INSERT_USER = ` INSERT users SET name=?, password=?; `
 
-	UPDATE_USER = `
-               UPDATE  users SET password=? WHERE name=?;
-        `
+	UPDATE_USER = ` UPDATE  users SET password=? WHERE name=?; `
+
+	DROP_USER = `DROP TABLE users;`
 
 	CREATE_MSG = `
         	CREATE TABLE IF NOT EXISTS messages (

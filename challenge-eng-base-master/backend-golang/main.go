@@ -18,8 +18,10 @@ const (
 	setMaxOpenConn = 10
 	setMaxIdleConn = 0
 	timeFormat     = "2006-01-02 15:04:05"
+	userCacheSize  = 10
 )
 
+//UserStruct data for each users
 type UserStruct struct {
 	Name     string `db:"name", json:"name"`
 	Password string `db:"password", json:"passowrd"`
@@ -32,7 +34,7 @@ Note
     image/png  = image/width/height
     video/mpeg = video/length/source
 */
-
+//MessageStruct meta for Chat Messages
 type MessageStruct struct {
 	Sender          string `db:"sender", json:"sender"`
 	Recipient       string `db:"recipient", json:"recipient"`
@@ -41,7 +43,27 @@ type MessageStruct struct {
 	Timestamp       string `db:"timestamp", json:"timestamp"`
 }
 
+//Cache
+var (
+	userCache = make([]string, userCacheSize)
+)
+
+//insertUserCache use to keep recent userCache Size in cache
+func insertUserCache(usr string) {
+
+	if len(userCache) == userCacheSize {
+		tmp := userCache[1:]
+		userCache = tmp
+	}
+	userCache = append(userCache, usr)
+}
+
+//CleanUp for Testing purpose
 func cleanUp(db *sql.DB) error {
+
+	if _, err := db.Exec(DROP_USER); err != nil {
+		return err
+	}
 
 	if _, err := db.Exec(DROP_MSG); err != nil {
 		return err
@@ -50,11 +72,14 @@ func cleanUp(db *sql.DB) error {
 	return nil
 }
 
+//Main Routine
 func main() {
 	db, err := sql.Open("mysql", "root:testpass@tcp(db:3306)/challenge")
 	if err != nil {
 		log.Fatal("unable to connect to DB", err)
 	}
+
+	defer db.Close()
 
 	//DROP TABLE, if needed
 	//cleanUp(db)
@@ -79,6 +104,7 @@ func main() {
 		}
 	})
 
+	//Users rest end point
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		if err := userHandler(w, r, db); err != nil {
@@ -88,6 +114,7 @@ func main() {
 		}
 	})
 
+	//MEssages rest end point
 	http.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		if err := messageHandler(w, r, db); err != nil {
@@ -98,11 +125,13 @@ func main() {
 		}*/
 	})
 
+	//webserver
 	if err := http.ListenAndServe(":8000", nil); err != nil {
 		log.Fatal(err)
 	}
 }
 
+//Create tables and set max conn to DB limits
 func createNInitialiseMySQL(db *sql.DB) error {
 
 	db.SetMaxOpenConns(setMaxOpenConn)
@@ -119,6 +148,7 @@ func createNInitialiseMySQL(db *sql.DB) error {
 	return nil
 }
 
+//Simple user validation
 func userValidation(user UserStruct) bool {
 	if user.Name == "" || user.Name == "null" || user.Name == "NULL" ||
 		user.Password == "" || user.Password == "null" || user.Password == "NULL" {
@@ -128,6 +158,7 @@ func userValidation(user UserStruct) bool {
 	return true
 }
 
+//User Handler
 func userHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error) {
 	cmd := r.Method
 	firstTime := true
@@ -148,9 +179,12 @@ func userHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error)
 			return errors.New("Missing Params")
 		}
 
-		//Insert to Table
+		//Insert/Update to Table
 		var stmt *sql.Stmt
 		if cmd == "POST" {
+			//insert to userCache
+			insertUserCache(t.Name)
+
 			stmt, err = db.Prepare(INSERT_USER)
 			if err != nil {
 				return err
@@ -191,6 +225,7 @@ func userHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error)
 	return nil
 }
 
+//Content to read message details per row
 type Content struct {
 	Sender    string `json:"sender"`
 	Recipient string `json:"recipient"`
@@ -201,6 +236,7 @@ type Content struct {
 	Source    string `json:"source"`
 }
 
+//Message simple validation
 func msgValidation(c Content, msgType string) bool {
 	if c.Sender == "" || c.Sender == "null" || c.Sender == "NULL" ||
 		c.Recipient == "" || c.Recipient == "null" || c.Recipient == "NULL" ||
@@ -222,6 +258,7 @@ func msgValidation(c Content, msgType string) bool {
 	return true
 }
 
+//MessabeHandler
 func messageHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error) {
 	cmd := r.Method
 	contentType := r.Header.Get("Content-Type")
@@ -275,6 +312,7 @@ func messageHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err err
 		sliceMessage = append(sliceMessage, t)
 	}
 
+	//Insert/Update message
 	var stmt *sql.Stmt
 	if cmd == "POST" {
 		stmt, err = db.Prepare(INSERT_MSG)
@@ -321,6 +359,48 @@ func messageHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err err
 	return nil
 }
 
+//Validate User
+func validateUser(sender string, recipient string, db *sql.DB) (err error) {
+	found := false
+	s := false
+	r := false
+
+	//Check it in cache first
+	for _, user := range userCache {
+		if user == sender {
+			s = true
+		} else if user == recipient {
+			r = true
+		} else if s == true && r == true {
+			found = true
+			break
+		}
+	}
+	if found {
+		return nil
+	}
+
+	//Check users in data base
+	scount := 0
+	err = db.QueryRow("SELECT count(*) from users WHERE name=?", sender).Scan(&scount)
+	if err != nil {
+		return err
+	}
+	rcount := 0
+	err = db.QueryRow("SELECT count(*) from users WHERE name=?", recipient).Scan(&rcount)
+	if err != nil {
+		return err
+	}
+
+        //fmt.Println(scount,rcount)
+	if scount == 0 || rcount == 0 {
+		return errors.New("Invalid Users")
+	}
+
+	return nil
+}
+
+// Get command handler for Message end point
 func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error) {
 
 	sender := r.URL.Query()["sender"][0]
@@ -328,7 +408,7 @@ func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err erro
 	pagenumberstr := r.URL.Query()["pagenumber"][0]
 	totalmsginpagestr := r.URL.Query()["totalmsginpage"][0]
 
-	//Validation
+	//Basic Validation
 	if sender == "" || sender == "null" || sender == "NULL" ||
 		recipient == "" || recipient == "null" || recipient == "NULL" ||
 		pagenumberstr == "" || pagenumberstr == "null" || pagenumberstr == "NULL" ||
@@ -338,7 +418,14 @@ func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err erro
 	pagenumber, _ := strconv.Atoi(pagenumberstr)
 	totalmsginpage, _ := strconv.Atoi(totalmsginpagestr)
 
-	fmt.Println(pagenumber, totalmsginpage)
+	//Validate sender and recipient
+	if err := validateUser(sender, recipient, db); err != nil {
+		return err
+	}
+
+	//fmt.Println(pagenumber, totalmsginpage)
+
+	//Query and reads all messages
 	rows, err := db.Query(SELECT_MSG, sender, recipient)
 	if err != nil {
 		fmt.Println("err =", err)
@@ -359,6 +446,7 @@ func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err erro
 		return errors.New("No Message Found")
 	}
 
+	//Calculate which part to show as per pagenumber and number of message in a page
 	sIndex := 0
 	reqData := totalmsginpage * pagenumber
 	//fmt.Println("reqData =", reqData)
@@ -372,6 +460,8 @@ func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err erro
 	}
 
 	//fmt.Println("sIndex =", sIndex)
+
+	//Final Output data
 	outData := make([]MessageStruct, 0, 1)
 
 	for i := (sIndex - 1); i > (sIndex - totalmsginpage - 1); i-- {
