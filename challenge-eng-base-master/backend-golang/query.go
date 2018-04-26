@@ -23,7 +23,7 @@ const (
        			recipient varchar(100) NOT NULL,
                         message varchar(1000),
                         contentmetadata varchar(50) NOT NULL,
-                        timestamp timestamp NOT NULL,
+                        timestamp varchar(100) NOT NULL,
        			PRIMARY KEY (sender,recipient,timestamp)
        		);
         `
@@ -38,7 +38,7 @@ const (
 
 	DROP_MSG = `DROP TABLE messages;`
 
-        SELECT_MSG = `
+	SELECT_MSG = `
                SELECT sender, recipient, message, contentmetadata, timestamp FROM messages WHERE sender=? AND recipient=?;
         `
 )

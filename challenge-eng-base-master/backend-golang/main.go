@@ -8,8 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
-        "strconv"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -17,6 +17,7 @@ import (
 const (
 	setMaxOpenConn = 10
 	setMaxIdleConn = 0
+	timeFormat     = "2006-01-02 15:04:05"
 )
 
 type UserStruct struct {
@@ -33,11 +34,11 @@ Note
 */
 
 type MessageStruct struct {
-	Sender          string    `db:"sender", json:"sender"`
-	Recipient       string    `db:"recipient", json:"recipient"`
-	Message         string    `db:"message", json:"message"`
-	Contentmetadata string    `db:"contentmetadata", json:"contentmetadata"`
-	Timestamp       time.Time `db:"timestamp", json:"timestamp"`
+	Sender          string `db:"sender", json:"sender"`
+	Recipient       string `db:"recipient", json:"recipient"`
+	Message         string `db:"message", json:"message"`
+	Contentmetadata string `db:"contentmetadata", json:"contentmetadata"`
+	Timestamp       string `db:"timestamp", json:"timestamp"`
 }
 
 func cleanUp(db *sql.DB) error {
@@ -91,8 +92,8 @@ func main() {
 		w.Header().Add("Content-Type", "application/json")
 		if err := messageHandler(w, r, db); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-		} 
-                /*else {
+		}
+		/*else {
 			w.WriteHeader(http.StatusOK)
 		}*/
 	})
@@ -225,10 +226,10 @@ func messageHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err err
 	cmd := r.Method
 	contentType := r.Header.Get("Content-Type")
 
-        if cmd =="GET" {
-           err = msgGetHandler(w,r,db)
-           return err
-        }
+	if cmd == "GET" {
+		err = msgGetHandler(w, r, db)
+		return err
+	}
 
 	sliceMessage := make([]MessageStruct, 0, 1)
 	dec := json.NewDecoder(r.Body)
@@ -267,7 +268,9 @@ func messageHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err err
 		t.Message = content.Message
 		t.Sender = content.Sender
 		t.Recipient = content.Recipient
-		t.Timestamp = time.Now()
+		tmpTime := time.Now()
+		tmpTime.Format(timeFormat)
+		t.Timestamp = tmpTime.String()
 
 		sliceMessage = append(sliceMessage, t)
 	}
@@ -318,48 +321,67 @@ func messageHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err err
 	return nil
 }
 
+func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) (err error) {
 
-func msgGetHandler(w http.ResponseWriter, r *http.Request, db *sql.DB)(err error) {
+	sender := r.URL.Query()["sender"][0]
+	recipient := r.URL.Query()["recipient"][0]
+	pagenumberstr := r.URL.Query()["pagenumber"][0]
+	totalmsginpagestr := r.URL.Query()["totalmsginpage"][0]
 
-        sender := r.URL.Query()["sender"][0]
-        recipient := r.URL.Query()["recipient"][0]
-        pagenumberstr := r.URL.Query()["pagenumber"][0]
-        totalmsginpagestr := r.URL.Query()["totalmsginpage"][0]
+	//Validation
+	if sender == "" || sender == "null" || sender == "NULL" ||
+		recipient == "" || recipient == "null" || recipient == "NULL" ||
+		pagenumberstr == "" || pagenumberstr == "null" || pagenumberstr == "NULL" ||
+		totalmsginpagestr == "" || totalmsginpagestr == "null" || totalmsginpagestr == "NULL" {
+		return errors.New("Missing Params")
+	}
+	pagenumber, _ := strconv.Atoi(pagenumberstr)
+	totalmsginpage, _ := strconv.Atoi(totalmsginpagestr)
 
-    //Validation
-    if sender =="" || sender == "null" || sender == "NULL" ||
-       recipient == "" || recipient == "null" || recipient == "NULL" ||
-       pagenumberstr == "" || pagenumberstr == "null" || pagenumberstr == "NULL" ||
-       totalmsginpagestr == "" || totalmsginpagestr == "null" || totalmsginpagestr == "NULL" {
-          return errors.New("Missing Params")
-    }
-    pagenumber,_ := strconv.Atoi(pagenumberstr)
-    totalmsginpage,_ := strconv.Atoi(totalmsginpagestr)
+	fmt.Println(pagenumber, totalmsginpage)
+	rows, err := db.Query(SELECT_MSG, sender, recipient)
+	if err != nil {
+		fmt.Println("err =", err)
+		return err
+	}
+	scanData := make([]MessageStruct, 0, 1)
+	for rows.Next() {
+		var t MessageStruct
+		if err = rows.Scan(&t.Sender, &t.Recipient, &t.Message, &t.Contentmetadata, &t.Timestamp); err != nil {
+			fmt.Println("err =", err)
+			break
+		}
+		scanData = append(scanData, t)
+	}
 
-    fmt.Println(pagenumber, totalmsginpage)
-    rows,err :=  db.Query(SELECT_MSG,sender,recipient) 
-    if err != nil{
-          fmt.Println("err =", err)
-          return err
-    }
-    fmt.Printf("rows =%c", rows)
-    arrOutData := make([]MessageStruct,0,1)
-    for rows.Next() {
-      var t MessageStruct
+	totalData := len(scanData)
+	if totalData == 0 {
+		return errors.New("No Message Found")
+	}
 
-      if err = rows.Scan(&t.Sender, &t.Recipient, &t.Message, &t.Contentmetadata, &t.Timestamp); err != nil {
-         fmt.Println("err =", err)
-         break
-      }
-      fmt.Printf("t =%v", t)
-      arrOutData = append(arrOutData,t) 
-    }
+	sIndex := 0
+	reqData := totalmsginpage * pagenumber
+	//fmt.Println("reqData =", reqData)
+	startPoint := totalmsginpage * (pagenumber - 1)
+	//fmt.Println("startPoint =", startPoint)
+	//fmt.Println("totalData =", totalData)
+	if totalData >= reqData {
+		sIndex = totalData - startPoint
+	} else {
+		sIndex = totalData
+	}
 
-    w.Header().Add("Content-Type", "application/json")
-    fmt.Println(len(arrOutData))
-    if len(arrOutData) > 0 {
-        json.NewEncoder(w).Encode(arrOutData)
-    }
+	//fmt.Println("sIndex =", sIndex)
+	outData := make([]MessageStruct, 0, 1)
+
+	for i := (sIndex - 1); i > (sIndex - totalmsginpage - 1); i-- {
+		outData = append(outData, scanData[i])
+	}
+	w.Header().Add("Content-Type", "application/json")
+	//fmt.Println("outData =", len(outData))
+	if len(outData) > 0 {
+		json.NewEncoder(w).Encode(outData)
+	}
 	w.WriteHeader(http.StatusOK)
-    return nil
+	return nil
 }
